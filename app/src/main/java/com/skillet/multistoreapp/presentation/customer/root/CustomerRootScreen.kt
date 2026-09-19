@@ -90,7 +90,10 @@ fun CustomerRootScreen(
                 val viewModel: CustomerProductDetailViewModel = hiltViewModel(backStackEntry)
 
                 CustomerProdutcDetailScreen(
-                    viewModel = viewModel
+                    viewModel = viewModel,
+                    onNavigateToCart = {
+                        customerNavController.navigate(AppRoute.CustomerCart.route)
+                    }
                 )
             }
 

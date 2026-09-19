@@ -21,17 +21,21 @@ data class CustomerProductDetailUiState(
     val productId: String = "",
     val product: Product? = null,
     val isLoading: Boolean = false,
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
+    val quantity: Int = 1
 )
 
 sealed interface CustomerProductDetailEffect {
     data class ShowMessage(
         val message: String
     ): CustomerProductDetailEffect
+    object NavigateToCart: CustomerProductDetailEffect
 }
 
 sealed interface CustomerProductDetailEvent {
     object AddProductToCart: CustomerProductDetailEvent
+    object BuyNow: CustomerProductDetailEvent
+    data class OnQuantityChanged(val quantity: Int): CustomerProductDetailEvent
 }
 
 @HiltViewModel
@@ -52,6 +56,10 @@ class CustomerProductDetailViewModel @Inject constructor(
     fun onEvent(event: CustomerProductDetailEvent){
         when(event){
             CustomerProductDetailEvent.AddProductToCart -> addProductToCart()
+            CustomerProductDetailEvent.BuyNow -> buyNow()
+            is CustomerProductDetailEvent.OnQuantityChanged -> {
+                _uiState.update { it.copy(quantity = event.quantity) }
+            }
         }
     }
     init {
@@ -103,10 +111,12 @@ class CustomerProductDetailViewModel @Inject constructor(
 
     fun addProductToCart(){
         val product = uiState.value.product ?: return
+        val quantity = uiState.value.quantity
 
         viewModelScope.launch {
             cartRepository.addProduct(
-                product = product
+                product = product,
+                quantity = quantity
             ).onSuccess {
                 _effect.emit(
                     CustomerProductDetailEffect.ShowMessage(
@@ -117,6 +127,26 @@ class CustomerProductDetailViewModel @Inject constructor(
                 _effect.emit(
                     CustomerProductDetailEffect.ShowMessage(
                         message = error.message ?: "Error desconocido al agregar el producto al carrito"
+                    )
+                )
+            }
+        }
+    }
+
+    private fun buyNow() {
+        val product = uiState.value.product ?: return
+        val quantity = uiState.value.quantity
+
+        viewModelScope.launch {
+            cartRepository.addProduct(
+                product = product,
+                quantity = quantity
+            ).onSuccess {
+                _effect.emit(CustomerProductDetailEffect.NavigateToCart)
+            }.onFailure { error ->
+                _effect.emit(
+                    CustomerProductDetailEffect.ShowMessage(
+                        message = error.message ?: "Error al procesar la compra"
                     )
                 )
             }

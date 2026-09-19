@@ -21,6 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.skillet.multistoreapp.core.model.Product
@@ -57,10 +58,24 @@ fun CustomerProductDetailContent(
         Card(
             modifier = Modifier.fillMaxWidth()
         ) {
+            val stockText = when {
+                product.stock <= 0 -> "Agotado"
+                product.stock <= 5 -> "¡Últimas unidades! Solo quedan ${product.stock}"
+                else -> "Stock disponible: ${product.stock} unidades."
+            }
+            
+            val textColor = when {
+                product.stock <= 0 -> MaterialTheme.colorScheme.error
+                product.stock <= 5 -> Color(0xFFF44336) // Un rojo/naranja llamativo
+                else -> MaterialTheme.colorScheme.onSurface
+            }
+
             Text(
-                text = "Stock disponible: ${product.stock} unidades.",
+                text = stockText,
                 modifier = Modifier.padding(16.dp),
-                style = MaterialTheme.typography.bodyMedium
+                style = MaterialTheme.typography.bodyMedium,
+                color = textColor,
+                fontWeight = if (product.stock <= 5) FontWeight.Bold else FontWeight.Normal
             )
         }
         Spacer(modifier = Modifier.height(8.dp))

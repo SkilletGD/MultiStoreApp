@@ -57,16 +57,22 @@ fun CustomerProductItem(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Spacer(modifier = Modifier.height(8.dp))
+                val isOutOfStock = product.stock <= 0
+                
                 Text(
-                    text = "USD %.2f".format(product.price),
+                    text = if (isOutOfStock) "AGOTADO" else "USD %.2f".format(product.price),
                     style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.primary,
+                    color = if (isOutOfStock) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
                     fontWeight = FontWeight.Bold
                 )
-                Text(
-                    text = "Stock disponible: ${product.stock}",
-                    style = MaterialTheme.typography.bodyMedium
-                )
+                
+                if (!isOutOfStock) {
+                    Text(
+                        text = if (product.stock <= 5) "¡Pocas unidades!" else "Stock: ${product.stock}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (product.stock <= 5) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
         }
     }

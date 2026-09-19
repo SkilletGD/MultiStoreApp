@@ -24,7 +24,7 @@ class CartRepositoryImpl (
         return user.uid
     }
 
-    override suspend fun addProduct(product: Product): Result<Unit> =
+    override suspend fun addProduct(product: Product, quantity: Int): Result<Unit> =
         runCatching {
             val userId = currentUserId()
             // carts
@@ -42,14 +42,14 @@ class CartRepositoryImpl (
             if(!snapshot.exists()){
                 val cartItem = CartItem(
                     product = product,
-                    quantity = 1
+                    quantity = quantity
                 )
                 itemRef.set(cartItem).await()
             }else{
                 val currentQuantity = snapshot.getLong("quantity") ?.toInt() ?: 0
 
                 itemRef.update(
-                    "quantity", currentQuantity + 1
+                    "quantity", currentQuantity + quantity
                 ).await()
             }
         }

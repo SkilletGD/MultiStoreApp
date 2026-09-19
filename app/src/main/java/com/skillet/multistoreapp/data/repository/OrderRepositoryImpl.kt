@@ -72,7 +72,22 @@ class OrderRepositoryImpl(
                 created = System.currentTimeMillis()
             )
 
-            ordersRef().document(orderId).set(finalOrder).await()
+            val batch = firestore.batch()
+            
+            // Guardar el pedido
+            batch.set(ordersRef().document(orderId), finalOrder)
+            
+            // Descontar stock
+            items.forEach { cartItem ->
+                val productRef = firestore.collection("products").document(cartItem.product.id)
+                val newStock = cartItem.product.stock - cartItem.quantity
+                if (newStock < 0) {
+                    throw Exception("No hay suficiente stock para el producto ${cartItem.product.name}")
+                }
+                batch.update(productRef, "stock", newStock)
+            }
+
+            batch.commit().await()
 
             Unit
         }
@@ -155,9 +170,33 @@ class OrderRepositoryImpl(
     override suspend fun updateOrderStatus(orderId: String, status: OrderStatus): Result<Unit> =
         runCatching {
             val id = orderId.trim()
-            if(id.isBlank()) throw IllegalArgumentException("El id del pedido está vacío")
+            if (id.isBlank()) throw IllegalArgumentException("El id del pedido está vacío")
 
-            ordersRef().document(id).update("status", status).await()
+            val orderDocument = ordersRef().document(id).get().await()
+            val currentOrder = orderDocument.toObject(Order::class.java)
+                ?: throw Exception("El pedido no existe")
+
+            // Si el estado cambia a CANCELADO y no estaba ya cancelado, devolvemos el stock
+            if (status == OrderStatus.CANCELADO && currentOrder.status != OrderStatus.CANCELADO) {
+                val batch = firestore.batch()
+
+                // Actualizar estado del pedido
+                batch.update(ordersRef().document(id), "status", status)
+
+                // Devolver stock a cada producto
+                currentOrder.items.forEach { orderItem ->
+                    val productRef = firestore.collection("products").document(orderItem.productId)
+                    
+                    // Necesitamos obtener el stock actual del producto para incrementarlo
+                    // Nota: En un batch no podemos leer, así que usamos un incremento atómico de Firestore
+                    batch.update(productRef, "stock", com.google.firebase.firestore.FieldValue.increment(orderItem.quantity.toLong()))
+                }
+
+                batch.commit().await()
+            } else {
+                // Si es cualquier otro cambio de estado, solo actualizamos el campo
+                ordersRef().document(id).update("status", status).await()
+            }
 
             Unit
         }
