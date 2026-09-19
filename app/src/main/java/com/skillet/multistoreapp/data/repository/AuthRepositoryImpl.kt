@@ -1,5 +1,6 @@
 package com.skillet.multistoreapp.data.repository
 
+import com.google.firebase.auth.EmailAuthProvider
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.skillet.multistoreapp.core.model.AppUser
@@ -149,5 +150,15 @@ class AuthRepositoryImpl(
 
             snapshot.toObject(AppUser::class.java) ?: throw Exception("No se pudo convertir la informacion del usuario")
 
+        }
+
+    override suspend fun verifyPassword(password: String): Result<Unit> =
+        runCatching {
+            val user = auth.currentUser ?: throw IllegalStateException("Usuario no autenticado")
+            val email = user.email ?: throw IllegalStateException("Email no encontrado")
+
+            val credential = EmailAuthProvider.getCredential(email, password)
+            user.reauthenticate(credential).await()
+            Unit
         }
 }

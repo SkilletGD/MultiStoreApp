@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.skillet.multistoreapp.core.model.Product
 import com.skillet.multistoreapp.domain.repository.AuthRepository
 import com.skillet.multistoreapp.domain.repository.ProductRepository
+import com.skillet.multistoreapp.domain.repository.ProductStorageRepository
 import com.skillet.multistoreapp.domain.repository.StoreRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -22,7 +23,9 @@ data class SellerProductsListUiState(
     val storeId: String = "",
     val products: List<Product> = emptyList(),
     val isLoading: Boolean = false,
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
+    val showSecurityDialog: Boolean = false,
+    val productToDelete: Product? = null
 )
 sealed interface SellerProductsListEffect {
     data class ShowMessage(
@@ -34,7 +37,8 @@ sealed interface SellerProductsListEffect {
 class SellerProductsListViewModel @Inject constructor(
     private val authRepository: AuthRepository,
     private val storeRepository: StoreRepository,
-    private val productRepository: ProductRepository
+    private val productRepository: ProductRepository,
+    private val productStorage: ProductStorageRepository
 ): ViewModel() {
 
     private val _uiState = MutableStateFlow(SellerProductsListUiState())
@@ -136,6 +140,41 @@ class SellerProductsListViewModel @Inject constructor(
                         isLoading = false
                     )
                 }
+            }
+        }
+    }
+
+    fun deleteProduct(product: Product) {
+        _uiState.update { it.copy(showSecurityDialog = true, productToDelete = product) }
+    }
+
+    fun onDismissSecurityDialog() {
+        _uiState.update { it.copy(showSecurityDialog = false, productToDelete = null) }
+    }
+
+    fun onConfirmDelete(password: String) {
+        val product = _uiState.value.productToDelete ?: return
+        
+        viewModelScope.launch {
+            _uiState.update { it.copy(isLoading = true, showSecurityDialog = false) }
+            
+            authRepository.verifyPassword(password).onSuccess {
+                // Borrar imagen del storage
+                if (product.storagePath.isNotBlank()) {
+                    productStorage.deleteProductImage(product.storagePath)
+                }
+
+                // Borrar de firestore
+                productRepository.deleteProduct(product.id).onSuccess {
+                    _uiState.update { it.copy(isLoading = false, productToDelete = null) }
+                    _effect.emit(SellerProductsListEffect.ShowMessage("Producto eliminado"))
+                }.onFailure { error ->
+                    _uiState.update { it.copy(isLoading = false, errorMessage = error.message) }
+                    _effect.emit(SellerProductsListEffect.ShowMessage(error.message ?: "Error al eliminar"))
+                }
+            }.onFailure {
+                _uiState.update { it.copy(isLoading = false, productToDelete = null) }
+                _effect.emit(SellerProductsListEffect.ShowMessage("Contraseña incorrecta. No se pudo eliminar."))
             }
         }
     }

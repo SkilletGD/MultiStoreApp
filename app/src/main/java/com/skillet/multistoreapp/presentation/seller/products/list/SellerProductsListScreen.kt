@@ -27,12 +27,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.skillet.multistoreapp.presentation.components.SecurityDialog
 
 
 @Composable
 fun SellerProductsListScreen(
     viewModel: SellerProductsListViewModel,
-    onGoToForm: () -> Unit
+    onGoToForm: (String?) -> Unit
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
 
@@ -51,11 +52,25 @@ fun SellerProductsListScreen(
             }
         }
     }
+
+    if (state.showSecurityDialog) {
+        SecurityDialog(
+            title = "Confirmar eliminación",
+            message = "¿Estás seguro de que deseas eliminar este producto? Esta acción no se puede deshacer y requiere tu contraseña por seguridad.",
+            onConfirm = { password ->
+                viewModel.onConfirmDelete(password)
+            },
+            onDismiss = {
+                viewModel.onDismissSecurityDialog()
+            }
+        )
+    }
+
     Scaffold(
         floatingActionButton = {
             FloatingActionButton(
                 onClick ={
-                    onGoToForm()
+                    onGoToForm(null)
                 }
             ) {
                 Icon(
@@ -103,7 +118,9 @@ fun SellerProductsListScreen(
                             key = {product -> product.id}
                         ){ product ->
                             SellerProductItem(
-                                product = product
+                                product = product,
+                                onClick = { id -> onGoToForm(id) },
+                                onDelete = { viewModel.deleteProduct(it) }
                             )
                         }
                     }

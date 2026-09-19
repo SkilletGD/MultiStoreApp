@@ -45,7 +45,17 @@ sealed class AppRoute(
     }
 
     object SellerProductList: AppRoute(route = "seller/products/list")
-    object SellerProductForm: AppRoute(route = "seller/product/form")
+    data object SellerProductForm: AppRoute(route = "seller/product/form?productId={productId}"){
+        const val ARG_PRODUCT_ID = "productId"
+
+        fun createRoute(productId: String? = null): String{
+            return if(productId.isNullOrBlank()){
+                "seller/product/form"
+            }else{
+                "seller/product/form?productId=$productId"
+            }
+        }
+    }
 
     object CustomerProducts: AppRoute(route = "customer/product/{storeId}")
 

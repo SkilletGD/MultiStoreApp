@@ -25,4 +25,6 @@ interface AuthRepository {
     fun logOut()
 
     suspend fun getUserById(userId: String): Result<AppUser>
+
+    suspend fun verifyPassword(password: String): Result<Unit>
 }

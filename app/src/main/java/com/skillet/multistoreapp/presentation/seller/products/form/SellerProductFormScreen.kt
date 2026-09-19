@@ -69,6 +69,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
+import com.skillet.multistoreapp.presentation.components.SecurityDialog
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -105,15 +106,28 @@ fun SellerProductsFormScreen(
         }
     }
 
+    if (uiState.showSecurityDialog) {
+        SecurityDialog(
+            title = "Confirmar acción",
+            message = "Para ${if (uiState.productId == null) "crear" else "actualizar"} este producto, por seguridad es necesario que ingreses tu contraseña.",
+            onConfirm = { password ->
+                viewModel.onEvent(SellerProductFormEvent.OnConfirmSecurity(password))
+            },
+            onDismiss = {
+                viewModel.onEvent(SellerProductFormEvent.OnDismissSecurity)
+            }
+        )
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
                 title = {
-                    Text(text = "Agregar Producto")
+                    Text(text = if(uiState.productId == null) "Agregar Producto" else "Editar Producto")
                 },
                 navigationIcon = {
                     IconButton(
-                        onClick = { }
+                        onClick = { onBack() }
                     ) {
                         Icon(
                             imageVector = Icons.Default.ArrowBack,
@@ -133,7 +147,7 @@ fun SellerProductsFormScreen(
             verticalArrangement = Arrangement.spacedBy(5.dp)
         ) {
 
-            if(uiState.selectUri != null){
+            if(uiState.selectUri != null || uiState.imageUrl != null){
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -142,7 +156,7 @@ fun SellerProductsFormScreen(
                         .background(Color.LightGray)
                 ) {
                     AsyncImage(
-                        model = uiState.selectUri,
+                        model = uiState.selectUri ?: uiState.imageUrl,
                         contentDescription = "Imagen Seleccionada",
                         modifier = Modifier
                             .fillMaxWidth(),
@@ -473,7 +487,7 @@ fun SellerProductsFormScreen(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "Crear Producto"
+                        text = if(uiState.productId == null) "Crear Producto" else "Actualizar Producto"
                     )
                 }
                 Spacer(modifier = Modifier.height(30.dp))

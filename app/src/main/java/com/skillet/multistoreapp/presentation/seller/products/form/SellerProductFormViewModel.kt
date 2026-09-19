@@ -4,6 +4,7 @@ import android.content.ContentResolver
 import android.content.Context
 import android.net.Uri
 import android.webkit.MimeTypeMap
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.skillet.multistoreapp.core.model.Category
@@ -13,6 +14,7 @@ import com.skillet.multistoreapp.domain.repository.CategoryRepository
 import com.skillet.multistoreapp.domain.repository.ProductRepository
 import com.skillet.multistoreapp.domain.repository.ProductStorageRepository
 import com.skillet.multistoreapp.domain.repository.StoreRepository
+import com.skillet.multistoreapp.navigation.AppRoute
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -28,6 +30,9 @@ import javax.inject.Inject
 
 data class SellerProductFormUiState(
     val selectUri: Uri? = null,
+    val imageUrl: String? = null,
+    val storagePath: String? = null,
+    val productId: String? = null,
     val storeId: String = "",
     val selectedCategoryId: String = "",
     val categories: List<Category> = emptyList(),
@@ -39,6 +44,8 @@ data class SellerProductFormUiState(
     val stock: String = "",
     val attributes: List<Pair<String, String>> = emptyList(),
     val isLoading: Boolean = false,
+    val showSecurityDialog: Boolean = false,
+    val pendingAction: (() -> Unit)? = null
 )
 
 sealed interface SellerProductFormEvent {
@@ -85,6 +92,12 @@ sealed interface SellerProductFormEvent {
     ) : SellerProductFormEvent
 
     data object OnSaveProduct : SellerProductFormEvent
+
+    data class OnConfirmSecurity(
+        val password: String
+    ) : SellerProductFormEvent
+
+    data object OnDismissSecurity : SellerProductFormEvent
 }
 
 sealed interface SellerProductFormEffect {
@@ -103,6 +116,7 @@ class SellerProductFormViewModel @Inject constructor(
     private val productStorage: ProductStorageRepository,
     private val productFirestore: ProductRepository,
     @ApplicationContext private val appContext: Context,
+    savedStateHandle: SavedStateHandle
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(SellerProductFormUiState())
     val uiState: StateFlow<SellerProductFormUiState> = _uiState.asStateFlow()
@@ -110,6 +124,7 @@ class SellerProductFormViewModel @Inject constructor(
     private val _effect = MutableSharedFlow<SellerProductFormEffect>()
     val effect: SharedFlow<SellerProductFormEffect> = _effect.asSharedFlow()
 
+    private val productId: String? = savedStateHandle[AppRoute.SellerProductForm.ARG_PRODUCT_ID]
 
     fun onEvent(event: SellerProductFormEvent) {
         when (event) {
@@ -133,12 +148,62 @@ class SellerProductFormViewModel @Inject constructor(
                 index = event.index
             )
             is SellerProductFormEvent.OnSaveProduct -> saveProduct()
+            is SellerProductFormEvent.OnConfirmSecurity -> confirmSecurity(event.password)
+            SellerProductFormEvent.OnDismissSecurity -> dismissSecurity()
 
+        }
+    }
+
+    private fun dismissSecurity() {
+        _uiState.update { it.copy(showSecurityDialog = false, pendingAction = null) }
+    }
+
+    private fun confirmSecurity(password: String) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isLoading = true, showSecurityDialog = false) }
+            authRepository.verifyPassword(password).onSuccess {
+                _uiState.value.pendingAction?.invoke()
+                _uiState.update { it.copy(pendingAction = null) }
+            }.onFailure {
+                _uiState.update { it.copy(isLoading = false, pendingAction = null) }
+                _effect.emit(SellerProductFormEffect.ShowMessage("Contraseña incorrecta. Operación cancelada."))
+            }
         }
     }
 
     init {
         loadCategories()
+        if (productId != null) {
+            loadProduct(productId)
+        }
+    }
+
+    private fun loadProduct(id: String) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isLoading = true) }
+            productFirestore.getProductById(id).onSuccess { product ->
+                if (product != null) {
+                    _uiState.update { current ->
+                        current.copy(
+                            productId = product.id,
+                            name = product.name,
+                            description = product.description,
+                            price = product.price.toString(),
+                            stock = product.stock.toString(),
+                            selectedCategoryId = product.categoryId,
+                            imageUrl = product.imageUrl,
+                            storagePath = product.storagePath,
+                            attributes = product.attributes.toList(),
+                            isLoading = false
+                        )
+                    }
+                } else {
+                    _uiState.update { it.copy(isLoading = false, errorMessage = "Producto no encontrado") }
+                }
+            }.onFailure { error ->
+                _uiState.update { it.copy(isLoading = false, errorMessage = error.message) }
+            }
+        }
     }
 
     private fun onImageSelected(uri: Uri?) {
@@ -358,7 +423,7 @@ class SellerProductFormViewModel @Inject constructor(
             }
             return
         }
-        if (state.selectUri == null) {
+        if (state.selectUri == null && state.imageUrl == null) {
             viewModelScope.launch {
                 _effect.emit(
                     SellerProductFormEffect.ShowMessage(
@@ -369,10 +434,114 @@ class SellerProductFormViewModel @Inject constructor(
             return
         }
 
-        createProduct(
+        if (state.productId == null) {
+            _uiState.update { it.copy(showSecurityDialog = true, pendingAction = {
+                createProduct(price = price, stock = stock)
+            }) }
+        } else {
+            _uiState.update { it.copy(showSecurityDialog = true, pendingAction = {
+                updateProduct(price = price, stock = stock)
+            }) }
+        }
+    }
+
+    private fun updateProduct(
+        price: Double,
+        stock: Int,
+    ) {
+        viewModelScope.launch {
+            _uiState.update { current ->
+                current.copy(
+                    isLoading = true,
+                    errorMessage = null
+                )
+            }
+
+            val state = _uiState.value
+            val uri = state.selectUri
+
+            if (uri != null) {
+                // Si seleccionó una nueva imagen, primero la subimos y borramos la anterior
+                val resolver = appContext.contentResolver
+                val fileResult: Result<Pair<ByteArray, String>> = runCatching {
+                    val byte = readBytesFormUri(resolver, uri)
+                    val extension = getExtensionFromUri(resolver, uri)
+                    byte to extension
+                }
+
+                fileResult.onSuccess { (bytes, extension) ->
+                    val user = authRepository.getCurrentUser()
+                    val sellerId = user?.uid ?: ""
+                    
+                    // Borrar imagen anterior si existe
+                    state.storagePath?.let { path ->
+                        productStorage.deleteProductImage(path)
+                    }
+
+                    val storageResult = productStorage.uploadProductImage(
+                        sellerId = sellerId,
+                        storeId = state.storeId,
+                        byteArray = bytes,
+                        extension = extension
+                    )
+
+                    storageResult.onSuccess { (downloadUrl, storagePath) ->
+                        performUpdate(
+                            price = price,
+                            stock = stock,
+                            imageUrl = downloadUrl,
+                            storagePath = storagePath
+                        )
+                    }.onFailure { error ->
+                        handleError(error.message ?: "Error al subir la imagen")
+                    }
+                }.onFailure { error ->
+                    handleError(error.message ?: "Error al procesar la imagen")
+                }
+            } else {
+                // Si no cambió la imagen, solo actualizamos los campos de texto
+                performUpdate(
+                    price = price,
+                    stock = stock,
+                    imageUrl = state.imageUrl ?: "",
+                    storagePath = state.storagePath ?: ""
+                )
+            }
+        }
+    }
+
+    private suspend fun performUpdate(
+        price: Double,
+        stock: Int,
+        imageUrl: String,
+        storagePath: String
+    ) {
+        val state = _uiState.value
+        val product = Product(
+            id = state.productId ?: "",
+            name = state.name,
+            description = state.description,
             price = price,
-            stock = stock
+            stock = stock,
+            categoryId = state.selectedCategoryId,
+            storeId = state.storeId,
+            imageUrl = imageUrl,
+            storagePath = storagePath,
+            attributes = state.attributes.associate { it.first to it.second }
         )
+
+        productFirestore.updateProduct(product).onSuccess {
+            _uiState.update { it.copy(isLoading = false) }
+            _effect.emit(SellerProductFormEffect.ShowMessage("Producto actualizado exitosamente"))
+            _effect.emit(SellerProductFormEffect.NavigateBack)
+        }.onFailure { error ->
+            handleError(error.message ?: "No se pudo actualizar el producto")
+        }
+    }
+
+    private suspend fun handleError(message: String) {
+        _uiState.update { it.copy(isLoading = false, errorMessage = message) }
+        _effect.emit(SellerProductFormEffect.ShowMessage(message))
     }
 
     private fun createProduct(

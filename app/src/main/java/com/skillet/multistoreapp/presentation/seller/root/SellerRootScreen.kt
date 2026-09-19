@@ -92,14 +92,27 @@ fun SellerRootScreen(
                 val viewModel: SellerProductsListViewModel = hiltViewModel(backStackEntry)
                 SellerProductsListScreen(
                     viewModel = viewModel,
-                    onGoToForm = {
-                        sellerNavController.navigate(AppRoute.SellerProductForm.route)
+                    onGoToForm = { productId ->
+                        sellerNavController.navigate(
+                            AppRoute.SellerProductForm.createRoute(productId)
+                        )
                     }
 
                 )
             }
 
-            composable (route = AppRoute.SellerProductForm.route){ backStackEntry ->
+            composable (
+                route = AppRoute.SellerProductForm.route,
+                arguments = listOf(
+                    navArgument(
+                        AppRoute.SellerProductForm.ARG_PRODUCT_ID
+                    ){
+                        type = NavType.StringType
+                        nullable = true
+                        defaultValue = null
+                    }
+                )
+            ){ backStackEntry ->
                 val viewModel: SellerProductFormViewModel = hiltViewModel(backStackEntry)
                 SellerProductsFormScreen(
                     viewModel = viewModel,
